@@ -1,0 +1,15 @@
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\bin\Release\WxHookDemo.exe.config
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\bin\Release\WxHookDemo.exe
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\bin\Release\WxHookDemo.pdb
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\bin\Release\Newtonsoft.Json.dll
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\bin\Release\websocket-sharp.dll
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\bin\Release\Newtonsoft.Json.xml
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\bin\Release\websocket-sharp.xml
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\obj\Release\WxHookDemo.csprojAssemblyReference.cache
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\obj\Release\WxHookDemo.FrmMain.resources
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\obj\Release\WxHookDemo.Properties.Resources.resources
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\obj\Release\WxHookDemo.csproj.GenerateResource.cache
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\obj\Release\WxHookDemo.csproj.CoreCompileInputs.cache
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\obj\Release\WxHookDemo.csproj.CopyComplete
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\obj\Release\WxHookDemo.exe
+C:\Users\Yuki\source\repos\WxHookDemo\WxHookDemo\obj\Release\WxHookDemo.pdb
