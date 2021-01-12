@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -6,29 +7,35 @@ using System.Drawing;
 using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WebSocketSharp;
 using Yus.Apps;
+using static WxHookDemo.EntertainModel;
+using static WxHookDemo.GuildModel;
 
 namespace WxHookDemo
 {
     public partial class FrmMain : Form
     {
+
         WxChatMemberSimple[] groupMembers;
+        GuildwarHelper guildwarHelper = GuildwarHelper.GetInstance();
+        EntertainHelper entertainHelper = EntertainHelper.GetInstance();
+
         const string adminid = "wxid_ogrbmj6u3zwb12";
+        const string roomid = "17786517750@chatroom";
+        private bool manageMode = true;
+        private bool guildwarMode = true;
 
+        private bool notifyReservedMember = false;
+        private const string pathToTheFile = "..\\..\\BotSettings\\";
 
+        private DateTime currentBattleEndTime;
+        private GuildMember currentBattleMember;
 
-
-
-
-
-
-
-
-
-
+        System.Threading.AutoResetEvent stopWaitHandle = new System.Threading.AutoResetEvent(false);
 
         #region 消息枚举
 
@@ -555,6 +562,7 @@ namespace WxHookDemo
                     HandleRecTxtMsg(data);
                     break;
                 case HEART_BEAT:
+                    ForceResetBattleMemberAsync();
                     HandleHeartBeat(data);
                     break;
                 case DEBUG_SWITCH:
@@ -641,7 +649,7 @@ namespace WxHookDemo
             {
                 var chatName = WxUsers.FirstOrDefault(f => f.wxid == data.receiver)?.name.NullReplace(data.receiver);
                 msg = $"[{data.time}][群聊][{chatName}][{data.sender}]{br}{data.content}";
-                CheckMessage(data);
+                CheckMessageAsync(data);
             }
             WriteRecMsg(msg);
             var contentJson = data.content.YusToJson();
@@ -819,53 +827,790 @@ namespace WxHookDemo
         #endregion
 
         #region chatbot logic
-        public void CheckMessage(WxServerRecData data) {
+        public void CheckMessageAsync(WxServerRecData data) {
             var chatName = WxUsers.FirstOrDefault(f => f.wxid == data.receiver)?.name.NullReplace(data.receiver);
             var sender = data.sender;
-            var content = data.content;
+            string content = data.content.ToString();
             var time = data.time;
+            GuildMember member = null;
+            EntertainMember entertainMember = new EntertainMember();
+            GuildWarMemberRecord latestRecord = guildwarHelper.GetLatestRecord();
+
             if (content.ToString().StartsWith("@bot")) {
+                member = guildwarHelper.GetMember(sender);
+                entertainMember = entertainHelper.GetEntertainMember(sender);
                 //send message back
                 switch (content.ToString()) {
                     case "@bot 身份":
+                    case "@bot 身份":
                         if (sender == adminid) {
-                            content = "@bot 你是超级管理员";
+                            content = "你是超级管理员";
                         }
-                        else{
-                            content = "";
+                        else{                            
+                            if (member != null)
+                            {
+                                if (member.isAdmin)
+                                {
+                                    content = "你是管理员";
+                                }
+                                else
+                                {
+                                    content = "你是会员";
+                                }
+
+                            }
+                            else {
+                                content = "你的人在水群，但是却不在公会。你到底是谁？";
+                            }
                         }
+                        AsyncSendMssage(sender, content);
+
+                        break;
+                    //super admin commands
+                    case "@bot 开启公会申请":
+                    case "@bot 开启公会申请":
+                        if (sender == adminid)
+                        {
+                            content = "公会申请已开启，可以申请入会";
+                            manageMode = true;
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    case "@bot 关闭公会申请":
+                    case "@bot 关闭公会申请":
+                        if (sender == adminid)
+                        {
+                            content = "公会申请已关闭，拒绝入会申请";
+                            manageMode = false;
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    case "@bot 测试发送":
+                    case "@bot 测试发送":
+                        if (sender == adminid)
+                        {
+                            SendTestMsg();
+                        }
+                        break;
+                    case "@bot 查公会":
+                    case "@bot 查公会":
+                        if (sender == adminid)
+                        {
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    case var someVal when new Regex(@"^@bot 全会发钻 .*").IsMatch(someVal):
+                    case var someVal1 when new Regex(@"^@bot 全会发钻 .*").IsMatch(someVal1):
+                        if (sender == adminid)
+                        {
+                            string amount = content.ToString().Substring(10, content.ToString().Length - 10);
+                            if (entertainHelper.AddGold(amount))
+                            {
+                                content = "充值成功！";
+                            }
+                            else {
+                                content = "错误！";
+                            }
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    //case var someVal when new Regex(@"^@bot 开启公会战 [0-9]").IsMatch(someVal):
+                    //case var someVal1 when new Regex(@"^@bot 开启公会战 [0-9]").IsMatch(someVal1):
+                    //    if (sender == adminid)
+                    //    {
+                    //        DateTime now = DateTime.UtcNow.AddHours(8);
+                    //        content = "公会战已开启于"+ now.ToString()+" 持续时间: "+ content.ToString().Substring(content.ToString().Length - 1) + "天";
+                    //        guildwarMode = true;
+                    //        BotSendMessage(sender, content);
+                    //    }
+                    //    break;
+                    case "@bot 结束公会战":
+                    case "@bot 结束公会战":
+                        if (sender == adminid)
+                        {
+                            content = "公会战已结束";
+                            guildwarMode = false;
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    case var someVal when new Regex(@"^@bot 公会战初始化 .*").IsMatch(someVal):
+                    case var someVal1 when new Regex(@"^@bot 公会战初始化 .*").IsMatch(someVal1):
+                        guildwarMode = true;
+                        if (sender == adminid)
+                        {
+                            string warName = content.ToString().Substring(12, content.ToString().Length - 12);
+                            if (guildwarHelper.InitializeGuildWar(warName))
+                            {
+                                content = warName + " 公会战初始化完成";
+                            }
+                            else {
+                                content = "初始化失败";
+                            }
+
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    case var someVal when new Regex(@"^@bot 读取公会战 .*").IsMatch(someVal):
+                    case var someVal1 when new Regex(@"^@bot 读取公会战 .*").IsMatch(someVal1):
+                        guildwarMode = true;
+                        if (sender == adminid)
+                        {
+                            string warName = content.ToString().Substring(11, content.ToString().Length-11);
+                            if (guildwarHelper.ReadGuildWar(warName))
+                            {
+                                content = warName + " 公会战读取成功";
+                            }
+                            else
+                            {
+                                content = "读取失败";
+                            }
+
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    //admin commands
+                    //case var someVal when new Regex(@"^@bot 改boss .*").IsMatch(someVal):
+                    //case var someVal1 when new Regex(@"^@bot 改boss .*").IsMatch(someVal1):
+                    //    if (sender == adminid && guildwarMode == true)
+                    //    {
+                    //        string warName = content.ToString().Substring(12, content.ToString().Length - 12);
+                    //        if (guildwarHelper.InitializeGuildWar(warName))
+                    //        {
+                    //            content = warName + " 公会战初始化完成";
+                    //        }
+                    //        else
+                    //        {
+                    //            content = "初始化失败";
+                    //        }
+
+                    //        BotSendMessage(sender, content);
+                    //    }
+                    //    break;
+                    case "@bot 查命令":
+                    case "@bot 查命令":
+                        content = "";
+                        if (member != null)
+                        {
+                            if (member.isAdmin)
+                            {
+                                content += "\n你是管理员，你可以额外使用以下命令: \n公告\n查全体刀\n强制解锁\n强制删刀\n修正血量 x\n修正周目 y\n修正boss z";
+                            }
+                            content += "\n会员可使用命令：\n查公告\n查boss\n查会员\n查刀\n查上一刀\n申请出刀\n申请合刀\n结束合刀\n挂树\n查树\n报刀 x(x为伤害值)\n报刀 x y(y为被代刀会员微信id)\n报刀 sl\n删刀\n预约 x y(x为boss序号，y为留言)";
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    case "@bot 查全体刀":
+                    case "@bot 查全体刀":
+                        if (member.isAdmin == true)
+                        {
+                            content = guildwarHelper.CheckAttacks("正常刀");
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    case "@bot 强制解锁":
+                    case "@bot 强制解锁":
+                        if (member.isAdmin == true)
+                        {
+                            guildwarHelper.ResetBattleMember();
+                            content = "\n解锁成功";
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    case "@bot 强制删刀":
+                    case "@bot 强制删刀":
+                        if (member != null && guildwarMode == true)
+                        {
+                            if (latestRecord != null && member.isAdmin)
+                            {
+                                if (guildwarHelper.RemoveLastDamage())
+                                {
+                                    content = "\n" + latestRecord.member.wxChatModel.nickname + "\n于" + latestRecord.time.ToShortTimeString() + "\n对" + latestRecord.target + "造成的" + latestRecord.damage + "伤害已经删除。\n请重新申请出刀并报刀！" + guildwarHelper.GetCurrentBoss();
+                                    guildwarHelper.LogWarDetails();
+                                }
+                                else
+                                {
+                                    content = "删刀错误";
+                                }
+
+                            }
+                            else
+                            {
+                                content = "没有出刀记录！";
+                            }
+                        }
+                        else
+                        {
+                            content = RefuseCommand(member, guildwarMode);
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+
+                    case var someVal when new Regex(@"^@bot 修正血量 .*").IsMatch(someVal):
+                    case var someVal1 when new Regex(@"^@bot 修正血量 .*").IsMatch(someVal1):
+                    case var someVal2 when new Regex(@"^@bot 修正周目 .*").IsMatch(someVal2):
+                    case var someVal3 when new Regex(@"^@bot 修正周目 .*").IsMatch(someVal3):
+                    case var someVal4 when new Regex(@"^@bot 修正boss .*").IsMatch(someVal4):
+                    case var someVal5 when new Regex(@"^@bot 修正boss .*").IsMatch(someVal5):
+                        if (member.isAdmin == true)
+                        {
+                            guildwarHelper.ResetBattleMember();
+                            if (content.ToString().Contains("血量"))
+                            {
+
+                                guildwarHelper.ModifyBoss("血量", content.ToString().Substring(10, content.ToString().Length - 10));
+                            }
+                            else if (content.ToString().Contains("周目"))
+                            {
+                                guildwarHelper.ModifyBoss("周目", content.ToString().Substring(10, content.ToString().Length - 10));
+                            }
+                            else if (content.ToString().Contains("boss")) {
+                                guildwarHelper.ModifyBoss("boss", content.ToString().Substring(12, content.ToString().Length - 12));
+                            }
+                            content = "\nBoss已修正！" + guildwarHelper.GetCurrentBoss();
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    //member commands
+                    case "@bot 入会":
+                    case "@bot 入会":
+                        if (manageMode == true)
+                        {                            
+                            WxChatMemberSimple wxchatMember = GetSenderNickName(sender);
+                            GuildMember newMember = new GuildMember();
+                            newMember.wxChatModel = wxchatMember;
+                            string status = guildwarHelper.AddMember(newMember);
+
+                            content = status;
+                            AsyncSendMssage(sender, content);
+                        }                        
                     break;
-                }
-                BotSendMessage(sender, content);
+                    case "@bot 查boss":
+                    case "@bot 查boss":
+                        content += guildwarHelper.GetCurrentBoss();
+                        AsyncSendMssage(sender, content);
+                    break;
+                    case "@bot 查公告":
+                    case "@bot 查公告":
+                        content = guildwarHelper.GetNotification();
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case var someVal when new Regex(@"^@bot 公告 .*").IsMatch(someVal):
+                    case var someVal1 when new Regex(@"^@bot 公告 .*").IsMatch(someVal1):
+                        if (member.isAdmin == true)
+                        {
+                            string info = content.ToString().Substring(8, content.ToString().Length - 8);
+                            if (guildwarHelper.SetNotification(info))
+                            {
+                                content = "设置成功！";
+                            }
+                            else
+                            {
+                                content = "？出错力！";
+                            }
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    case "@bot 查会员":
+                    case "@bot 查会员":
+                        List<GuildMember> tempMembers = new List<GuildMember>();
+                        tempMembers = guildwarHelper.GetAllMembers();
+                        content = "";
+                        foreach (GuildMember tempMember in tempMembers) {
+                            content += "\n" + tempMember.wxChatModel.nickname + "|" + tempMember.wxChatModel.wxid;
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case var someVal when new Regex(@"^@bot 查刀.*").IsMatch(someVal):
+                    case var someVal1 when new Regex(@"^@bot 查刀.*").IsMatch(someVal1):
+                        if (member != null && guildwarMode == true)
+                        {
+                            string targetWxid = content.ToString().Substring(7, content.ToString().Length - 7);
+                            if (targetWxid == "")
+                            {
+                                content = guildwarHelper.CheckMemberAttack(member);
+                            }
+                            else {
+                                content = guildwarHelper.CheckMemberAttack(guildwarHelper.GetMember(targetWxid));
+                            }
+                        }
+                        else
+                        {
+                            content = RefuseCommand(member, guildwarMode);
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case var someVal when new Regex(@"^@bot 预约 .*").IsMatch(someVal):
+                    case var someVal1 when new Regex(@"^@bot 预约 .*").IsMatch(someVal1):
+                        if (member != null && guildwarMode == true)
+                        {
+                            int bossNum = 0;
+                            string inputStr = content.ToString().Substring(8, content.ToString().Length - 8);
+                            string targetBoss = "";
+                            string note = "";
+                            string[] inputArr = inputStr.Split(' ');
+                            if (inputArr.Count() > 1)
+                            {
+                                targetBoss = inputArr[0];
+                                note = inputArr[1];
+                            }
+                            else {
+                                targetBoss = inputArr[0];
+                            }
+
+                            if (int.TryParse(targetBoss, out bossNum))
+                            {
+                                bossNum = Int32.Parse(targetBoss);
+                                if (guildwarHelper.ReserveBoss(member, bossNum, note)) {
+                                    content = "预约成功！";
+                                }
+                            }
+                            else
+                            {
+                                content = "命令错误， 请重新预约，命令为：预约 x 留言";
+                            }
+                        }
+                        else
+                        {
+                            content = RefuseCommand(member, guildwarMode);
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 取消预约":
+                    case "@bot 取消预约":
+                        if (member != null && guildwarMode == true)
+                        {
+                            if (guildwarHelper.RemoveMemberReserve(member))
+                            {
+                                content = "\n你的所有预约已解除！";
+                            }
+                            else
+                            {
+                                content = "错误！";
+                            }
+                        }
+                        else
+                        {
+                            content = RefuseCommand(member, guildwarMode);
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 查上一刀":
+                    case "@bot 查上一刀":
+                        if (member != null && guildwarMode == true)
+                        {
+                            if (latestRecord != null)
+                            {
+                                content = "\n上一刀为" + latestRecord.member.wxChatModel.nickname + "\n于" + latestRecord.time.ToShortTimeString() + "\n对" + latestRecord.target + "造成" + latestRecord.damage + "伤害";
+                            }
+                            else
+                            {
+                                content = "还没有人出刀";
+                            }
+                        }
+                        else {
+                            content = RefuseCommand(member, guildwarMode);
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 申请出刀":
+                    case "@bot 申请出刀":
+                        if (member != null && guildwarMode == true)
+                        {
+                            if (!guildwarHelper.RequestBattle(member))
+                            {
+                                if (guildwarHelper.GetChainBattleStatus())
+                                {
+                                    content = "\n拒绝申请, 会员合刀中！";
+                                }
+                                else {
+                                    content = "\n拒绝出刀, " + guildwarHelper.GetWarModel().currentMember.wxChatModel.nickname + "正在出刀中, 将自动结束于:\n" + guildwarHelper.GetWarModel().currentBattleEndTime.ToShortTimeString();
+                                }
+                            }
+                            else {
+                                content = guildwarHelper.GetNotification() + "\n允许出刀, " + guildwarHelper.GetWarModel().currentMember.wxChatModel.nickname + "于:\n" + guildwarHelper.GetWarModel().currentBattleStartTime.ToShortTimeString() + "\n开始出刀, 将自动结束于:\n" + guildwarHelper.GetWarModel().currentBattleEndTime.ToShortTimeString() + "\n 请出刀后报刀, 祝刀刀暴击！";
+                                currentBattleMember = guildwarHelper.GetWarModel().currentMember;
+                                currentBattleEndTime = guildwarHelper.GetWarModel().currentBattleEndTime;
+                            }
+                        }
+                        else {
+                            content = RefuseCommand(member, guildwarMode);
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 申请合刀":
+                    case "@bot 申请合刀":
+                        if (member != null && guildwarMode == true)
+                        {
+                            if (!guildwarHelper.RequestChainBattle(member))
+                            {
+                                content = "\n拒绝申请, " + guildwarHelper.GetWarModel().currentMember.wxChatModel.nickname + "正在出刀中, 将自动结束于:\n" + guildwarHelper.GetWarModel().currentBattleEndTime.ToShortTimeString();
+                            }                            
+                            else
+                            {
+                                if (guildwarHelper.GetAllChainBattleMembers().Count > 1)
+                                {
+                                    content = "\n合刀申请成功。";
+                                }
+                                else {
+                                    content = "\n合刀模式开启, " + guildwarHelper.GetWarModel().currentMember.wxChatModel.nickname + "于:\n" + guildwarHelper.GetWarModel().currentBattleStartTime.ToShortTimeString() + "\n开启合刀模式, 将自动结束于:\n" + guildwarHelper.GetWarModel().currentBattleEndTime.ToShortTimeString() + "\n请合刀成员申请合刀。";
+                                    currentBattleMember = guildwarHelper.GetWarModel().currentMember;
+                                    currentBattleEndTime = guildwarHelper.GetWarModel().currentBattleEndTime;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            content = RefuseCommand(member, guildwarMode);
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 结束合刀":
+                    case "@bot 结束合刀":
+                        if (member != null && guildwarMode == true)
+                        {
+                            if (!guildwarHelper.GetChainBattleStatus())
+                            {
+                                content = "\n合刀未开启。";
+                            }
+                            else
+                            {
+                                if (guildwarHelper.GetWarModel().currentMember.wxChatModel.wxid == member.wxChatModel.wxid)
+                                {
+                                    content = "\n合刀已结束。";
+                                    guildwarHelper.SetChainBattleStatus(false);
+                                    guildwarHelper.ResetBattleMember();
+                                }
+                                else
+                                {
+                                    content = "\n你不是合刀发起人，无法结束合刀。";
+                                }
+                            }
+                        }
+                        else
+                        {
+                            content = RefuseCommand(member, guildwarMode);
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 挂树":
+                    case "@bot 挂树":
+                        if (member != null && guildwarMode == true)
+                        {
+                            if (guildwarHelper.GetBattleMember() != null && guildwarHelper.GetBattleMember().wxChatModel.wxid == member.wxChatModel.wxid && !guildwarHelper.GetChainBattleStatus())
+                            {
+                                //normal on tree
+                                content = "\n" + guildwarHelper.GetWarModel().currentMember.wxChatModel.nickname + "挂树了！\n你的出刀锁定已解除，" + guildwarHelper.GetWarModel().currentBossTemplate.name + "被击杀后将自动下树！";
+                                guildwarHelper.AddTreeMember(member);                                
+                            }
+                            else if (guildwarHelper.GetBattleMember() != null && guildwarHelper.GetChainBattleStatus() && guildwarHelper.GetChainBattleMember(member.wxChatModel.wxid) != null)
+                            {
+                                //chain battle on tree
+                                content = "\n" + guildwarHelper.GetWarModel().currentMember.wxChatModel.nickname + "合刀时挂树了！\n" + guildwarHelper.GetWarModel().currentBossTemplate.name + "被击杀后将自动下树！";
+                                guildwarHelper.AddTreeMember(member);                                
+                            }
+                            else {
+                                content = "\n你未申请出刀，无法挂树！";
+                            }
+                        }
+                        else
+                        {
+                            content = RefuseCommand(member, guildwarMode);
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 查树":
+                    case "@bot 查树":
+                        if (member != null && guildwarMode == true)
+                        {
+                            content = guildwarHelper.GetTreeMembers();
+                        }
+                        else
+                        {
+                            content = RefuseCommand(member, guildwarMode);
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case var someVal when new Regex(@"^@bot 报刀 .*").IsMatch(someVal):
+                    case var someVal1 when new Regex(@"^@bot 报刀 .*").IsMatch(someVal1):
+                        if (member != null && guildwarMode == true)
+                        {
+                            string inputStr = content.ToString().Substring(8, content.ToString().Length - 8);
+                            string[] inputArr = inputStr.Split(' ');
+                            string damageStr = "";
+                            string replaceTargetWxid = "";
+                            if (inputArr.Count() > 1)
+                            {
+                                damageStr = inputArr[0];
+                                replaceTargetWxid = inputArr[1];
+                            }
+                            else
+                            {
+                                damageStr = inputArr[0];
+                            }
+                            int damage = 0;
+
+                            if (guildwarHelper.GetBattleMember() != null && (guildwarHelper.GetBattleMember().wxChatModel.wxid == member.wxChatModel.wxid || guildwarHelper.GetMember(replaceTargetWxid) != null) && !guildwarHelper.GetChainBattleStatus())
+                            {
+                                //normal report
+                                if (int.TryParse(damageStr, out damage))
+                                {
+                                    damage = Int32.Parse(damageStr);
+                                    if (damage >= 0 && damage <= 9999999 && ReportDamage(member, damage, replaceTargetWxid))
+                                    {
+                                        content = "\n出刀成功, 已记录 " + damageStr + " 伤害\n出刀锁定已解除！" + guildwarHelper.GetCurrentBoss();
+                                        guildwarHelper.LogWarDetails();
+                                    }
+                                    else
+                                    {
+                                        content = "\n报刀数据错误，请重新报刀！";
+                                    }
+                                }
+                                else if (damageStr == "SL" || damageStr == "sl") {
+                                    damage = -1;
+                                    if (ReportDamage(member, damage, replaceTargetWxid))
+                                    {
+                                        content = "\nSL已记录！";
+                                    }
+                                    else {
+                                        content = "\n报刀数据错误，请重新报刀！\n报刀格式为\n@bot 报刀 12345";
+                                    }
+                                }
+                                else
+                                {
+                                    content = "\n报刀数据错误，请重新报刀！\n报刀格式为\n@bot 报刀 12345";
+                                }
+                            }
+                            else if (guildwarHelper.GetBattleMember() != null && guildwarHelper.GetChainBattleStatus() && (guildwarHelper.GetChainBattleMember(member.wxChatModel.wxid) != null || guildwarHelper.GetMember(replaceTargetWxid) != null)) {
+                                //chain report
+                                if (int.TryParse(damageStr, out damage))
+                                {
+                                    damage = Int32.Parse(damageStr);
+                                    if (damage >= 0 && damage <= 9999999 && ReportDamage(member, damage, replaceTargetWxid))
+                                    {
+                                        content = "\n出刀成功, 已记录 " + damageStr + " 伤害\n请合刀会员继续报刀！" + guildwarHelper.GetCurrentBoss();
+                                        notifyReservedMember = guildwarHelper.LogWarDetails();
+                                    }
+                                    else
+                                    {
+                                        content = "\n报刀数据错误，请重新报刀！";
+                                    }
+                                }
+                                else
+                                {
+                                    content = "\n报刀数据错误，请重新报刀！\n报刀格式为\n@bot 报刀 12345";
+                                }
+                            }
+                            else
+                            {
+                                if (guildwarHelper.GetBattleMember().wxChatModel.wxid != member.wxChatModel.wxid && replaceTargetWxid == "")
+                                {
+                                    content = "\n你未申请出刀，无法报刀！"; 
+                                }
+                                else if(replaceTargetWxid != "" && guildwarHelper.GetMember(replaceTargetWxid) == null)
+                                {
+                                    content = "\n带刀对象不存在，请查询微信id后重新报刀！";
+                                }
+                                
+                            }
+                        }
+                        else
+                        {
+                            content = RefuseCommand(member, guildwarMode);
+                        }
+                        AsyncSendMssage(sender, content);
+                        if (guildwarHelper.GetNotifyStatus())
+                        {
+                            SendReservedNotifiesAsync();
+                        }
+                        break;
+
+                    case "@bot 删刀":
+                    case "@bot 删刀":
+                        if (member != null && guildwarMode == true)
+                        {
+                            if (latestRecord != null && sender == latestRecord.member.wxChatModel.wxid)
+                            {
+                                if (guildwarHelper.RemoveLastDamage())
+                                {
+                                    content = "\n" + latestRecord.member.wxChatModel.nickname + "\n于" + latestRecord.time.ToShortTimeString() + "\n对" + latestRecord.target + "造成的" + latestRecord.damage + "伤害已经删除。\n请重新申请出刀并报刀！" + guildwarHelper.GetCurrentBoss();
+                                    guildwarHelper.LogWarDetails();
+                                }
+                                else
+                                {
+                                    content = "删刀错误";
+                                }
+
+                            }
+                            else
+                            {
+                                content = "你不是最后一个出刀玩家";
+                            }
+                        }
+                        else {
+                            content = RefuseCommand(member, guildwarMode);
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    //entertain functions
+                    case var someVal when new Regex(@"^@bot 读取卡池 .*").IsMatch(someVal):
+                    case var someVal1 when new Regex(@"^@bot 读取卡池 .*").IsMatch(someVal1):
+                        if (sender == adminid)
+                        {
+                            string gachaName = content.ToString().Substring(10, content.ToString().Length - 10);
+                            content = entertainHelper.LoadPoll(gachaName);
+                            AsyncSendMssage(sender, content);
+                        }
+                        break;
+                    case "@bot 查娱乐命令":
+                    case "@bot 查娱乐命令":
+                        content = "\n创建娱乐档案\n签到\n今日运势\n查钻\n查库存\n查池子\n单抽\n十连";
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 创建娱乐档案":
+                    case "@bot 创建娱乐档案":
+                        WxChatMemberSimple tmpMember = GetSenderNickName(sender);
+                        content = entertainHelper.CreateMember(tmpMember);
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 签到":
+                    case "@bot 签到":
+                        if (entertainMember != null)
+                        {
+                            content = entertainHelper.CheckIn(entertainMember);
+                        }
+                        else
+                        {
+                            content = "\n未找到你的档案，请先 创建娱乐档案！";
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 今日运势":
+                    case "@bot 今日运势":
+                        if (entertainMember != null)
+                        {
+                            content = entertainHelper.CheckLuckyPoint(entertainMember);
+                        }
+                        else
+                        {
+                            content = "\n未找到你的档案，请先 创建娱乐档案！";
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 十连":
+                    case "@bot 十连":
+                        if (entertainMember != null)
+                        {
+                            content = entertainHelper.TenGacha(entertainMember);
+                        }
+                        else
+                        {
+                            content = "\n未找到你的档案，请先 创建娱乐档案！";
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 单抽":
+                    case "@bot 单抽":
+                        if (entertainMember != null)
+                        {
+                            content = entertainHelper.SingleGacha(entertainMember);
+                        }
+                        else {
+                            content = "\n未找到你的档案，请先 创建娱乐档案！";
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 查库存":
+                    case "@bot 查库存":
+                        if (entertainMember != null)
+                        {
+                            content = entertainHelper.CheckInventory(entertainMember);
+                        }
+                        else
+                        {
+                            content = "\n未找到你的档案，请先 创建娱乐档案！";
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 查钻":
+                    case "@bot 查钻":
+                        if (entertainMember != null)
+                        {
+                            content = entertainHelper.CheckGold(entertainMember);
+                        }
+                        else
+                        {
+                            content = "\n未找到你的档案，请先 创建娱乐档案！";
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                    case "@bot 查卡池":
+                    case "@bot 查卡池":
+                        if (entertainMember != null)
+                        {
+                            content = entertainHelper.GetGachaPoll();
+                        }
+                        else
+                        {
+                            content = "\n未找到你的档案，请先 创建娱乐档案！";
+                        }
+                        AsyncSendMssage(sender, content);
+                        break;
+                }                
             }
         }
-
-        public void BotSendMessage(string senderId, object message) {
+        public void AsyncSendMssage(string sender, object content) {
+            BotSendMessage(sender, content);
+            System.Threading.Thread.Sleep(300);
+            stopWaitHandle.WaitOne();
+            stopWaitHandle.Reset();
+        }
+        public void BotSendMessage(string senderId, object message)
+        {
 
             //get sender nick
-            WxChatMemberSimple sender = GetSenderNickName(senderId);
+            var sendContent = "";
 
-            string msg = message.ToString();
-            msg = msg.Remove(0, 5);
-
-            var backmessage = "收到 " + sender.nickname + " " + msg;
-
-            var sendContent = new
+            if (senderId != "")
             {
-                id = GetId(),
-                type = AT_MSG,
-                content = backmessage,
-                wxid = sender.wxid,
-                roomid = sender.roomid,
-                nickname = sender.nickname
+                WxChatMemberSimple sender = GetSenderNickName(senderId);
 
-            }.YusToJson();
+                var backmessage = message.ToString();
+                sendContent = new
+                {
+                    id = GetId(),
+                    type = AT_MSG,
+                    content = backmessage,
+                    wxid = sender.wxid,
+                    roomid = sender.roomid,
+                    nickname = sender.nickname
+
+                }.YusToJson();
+            }
+            else
+            {
+                var backmessage = message.ToString();
+
+                sendContent = new
+                {
+                    id = GetId(),
+                    type = TXT_MSG,
+                    content = backmessage,
+                    wxid = roomid
+                }.YusToJson();
+            }
+
 
             WxServer.SendAsync(sendContent, (result) =>
             {
-                //send message
+                Stop_Callback(result);
             });
         }
+        private void Stop_Callback(bool result)
+        {
+            // signal the wait handle
+            stopWaitHandle.Set();
+        }
+
 
         public WxChatMemberSimple GetSenderNickName(string senderId)
         {
@@ -877,7 +1622,86 @@ namespace WxHookDemo
         #endregion
 
         #region guildwar logic
-            
+        private void ForceResetBattleMemberAsync() {
+            try
+            {
+                if (guildwarHelper.GetWarModel() != null && guildwarHelper.GetWarModel().currentMember != null && DateTime.UtcNow.AddHours(8) > guildwarHelper.GetWarModel().currentBattleEndTime)
+                {
+                    string message = guildwarHelper.GetWarModel().currentMember.wxChatModel.nickname + "出刀已超时，强制解除锁定！";
+                    guildwarHelper.ResetBattleMember();
+                    AsyncSendMssage("", message);
+                }
+            }
+            catch {
+
+            }
+        }
+        private bool ReportDamage(GuildMember member, int damage, string replaceTarget) {
+            try
+            {   
+                if (guildwarHelper.GetWarModel() != null && guildwarHelper.GetWarModel().currentMember != null)
+                {
+                    if (replaceTarget != "" && guildwarHelper.GetMember(replaceTarget) == null) {
+                        return false;
+                    }
+                    //war mode is on and there is a current member attacking boss
+                    if (guildwarHelper.ReportDamage(member, damage, replaceTarget))
+                    {
+                        return true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+            }
+            catch {
+                return false;
+            }
+            return false;
+        }
+        private string RefuseCommand(GuildMember member, bool warmode) {
+            string output = "";
+            if (member == null)
+            {
+                output = "\n非会员无法使用该命令！ 请先入会！";
+            }
+            else
+            {
+                output = "\n公会战未开启！";
+            }
+            return output;
+        }
+
+        private void SendReservedNotifiesAsync() {
+            try {
+                guildwarHelper.SetNotifyStatus(false);
+                List<ReserveMemberModel> members = guildwarHelper.GetReservedMembers();
+                foreach (ReserveMemberModel member in members) {
+                    string message = "\n你预约的Boss已刷新！\n" + member.note;
+                    AsyncSendMssage(member.member.wxChatModel.wxid, message);
+                }
+            } catch (Exception e) {
+
+            }
+        }
+
+
+        private void SendTestMsg()
+        {
+            try
+            {
+                for(int i = 0; i < 10; i++)
+                {
+                    string message = "\n第" + i + "次发送！";
+                    AsyncSendMssage(adminid, message);
+                }
+            }
+            catch (Exception e)
+            {
+
+            }
+        }
         #endregion
     }
 }
